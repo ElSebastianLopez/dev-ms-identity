@@ -1,0 +1,57 @@
+name: CICD
+
+on:
+  push:
+    branches: [dev]  # Ejecuta el workflow cuando hay un push a la rama dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build Project
+        run: mvn clean install -DskipTests
+
+      - name: Login to Docker Hub
+        run: docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image
+        run: docker build -t sebastianlopezg/dev-ms-identity-container .
+
+      - name: Push Docker image
+        run: docker push sebastianlopezg/dev-ms-identity-container
+
+  deploy:
+    needs: build
+    runs-on: [aws-ec2]
+
+    steps:
+      - name: Pull Docker image
+        run: docker pull sebastianlopezg/dev-ms-identity-container
+
+      - name: Stop and remove existing container
+        run: docker rm -f dev-ms-identity-container || true
+
+      - name: Run new container
+        run: |
+          docker run -d \
+            -p 8080:8080 \
+            --name dev-ms-identity-container \
+            -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
+            -e DATABASE_USERNAME=${{ secrets.DATABASE_USERNAME }} \
+            -e DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }} \
+            -e JWT_SECRET=${{ secrets.JWT_SECRET }} \
+            -e JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }} \
+            -e MICRO=${{ secrets.MICRO }} \
+            -e ENV=${{ secrets.ENV }} \
+            -e APP_PORT=${{ secrets.APP_PORT }} \
+            sebastianlopezg/dev-ms-identity-container
